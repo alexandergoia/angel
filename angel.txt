@@ -1,0 +1,486 @@
+Salut,
+
+Daca mergi cu 335-ul spre Herastrau, ori cu 336-le spre 
+Politehnica/Calculatoare,
+nu uita ca in prezent aceste numere au si alta semnificatie :
+
+http://romania-acknowledges-stars.blogspot.com/2018/10/angel2_7.html
+
+http://romania-acknowledges-stars.blogspot.com/2018/10/operating-systems-unix-myth-bypassed.html
+
+100% free use, in the spirit of GPL. BSD spirit licence excluded. Adica 
+: spune si mai departe, nu tine doar pentru tine !
+
+
+PS : pentru completitudine, angel(2) == current->unix_deadly_signals = 
+1;
+                             human(2) == current->unix_deadly_signals = 
+0;
+AMIN.
+
+
+
+
+  Operating Systems : UNIX myth bypassed
+
+It has been told that Unix signals SIGKILL and SIGSTOP cannot be masked, 
+ignored or caught.
+
+We can imagine a scenario, having access to free Unices kernel & system 
+sources, when we can see what signal is sent.
+
+We can imagine a new system call, name it (R) angel(), which asks the 
+kernel to give "infinite life" to a process, group of processes, or to a 
+session, or a shell including perhaps children processes. Taking care of 
+some security mechanism.
+
+This system call will be based on ignoring SIGKILL/SIGTERM/SIGSTOP/... 
+signals.
+
+This can be done.
+
+Uses. Short, trustable (source code read and verified), clean, useful 
+programs. Perhaps clean network servers, clean Unix servers (daemons). 
+Programs that we want not to be intrerupted.
+
+We can design angel() to allow sometimes child processes, using fork(), 
+e.g. network servers, to have also infinite lives, or if we exec() our 
+startup code with a big, useful, known, but unaudited server/program.
+
+We now name these processes Angels (R).
+
+They are related to kernel threads, kernel processes, daemons and very 
+important processes, like ps or ls.
+
+Another idea is that angel() should work on non-root programs and users, 
+giving a group of users named "saints" (R) ;-) in /etc/group, where 
+special users on the UNIX system can be added or defined.
+
+Have a wonderful UNIX #date !
+
+
+Alexander Goia,
+Unix hobbyist,
+Romania
+
+
+
+
+
+  Angel(2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ANGEL
+
+
+the quest for immortality
+
+
+and solving along the road
+
+
+some other fundamental problems
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Angel(2) : THE solution to an old problem,
+regarding daemon(2,3) call and also the image with Beastie sodomizing 
+Tux, perhaps even real
+
+and bypassing the UNIX myth that SIGKILL and SIGSTOP cannot be blocked 
+or ignored (this is the *theory*, the code and implementation giving you 
+the *real* thing)
+
+giving you the chance to have immortal processes, meaning that you 
+cannot kill them, and they end only by return 0; or by exit(0);
+
+and being N-dimensional over daemon() calls, widely used by daemons on 
+your machine and often for Internet servers started from your machine, 
+that is you can call angel() with proper arguments, and giving *you*, 
+the conscious programmer, admin, and kernel hacker, the solution to an 
+infinite life, no-kill chance, for your programs
+
+and angel internet servers and angel local servers
+
+that can use while(TRUE), for minimal example, if you are committed to 
+have system-long-life to your process !
+
+For the Unix system Linux/gnu, of kernel versions 4.14.** to 4.18.**, 
+and the Linux distribution Slackware 14.2 to 14.2+ to 15.0. That is 2016 
+to 2018.
+
+Be blessed !
+
+
+Preliminary version of angel(), 335-th syscall, zero arguments
+
+
+1. /usr/src/linux-4.18.3/include/linux/sched.h, the struct task_struct :
+
+
+#ifdef CONFIG_SECURITY
+/* Used by LSM modules for access restriction: */
+void *security;
+#endif
+
+/*
+* New fields for task_struct should be added above here, so that
+* they are included in the randomized portion of task_struct.
+*/
+randomized_struct_fields_end
+
+int unix_deadly_signals ;
+
+/* CPU-specific state of this task: */
+struct thread_struct thread;
+
+/*
+* WARNING: on x86, 'thread_struct' contains a variable-sized
+* structure. It *MUST* be at the end of 'task_struct'.
+*
+* Do not put anything below here!
+*/
+};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+2. /usr/src/linux-4.18.3/kernel/fork.c
+
+
+/*
+* Ok, this is the main fork-routine.
+*
+* It copies the process, and if successful kick-starts
+* it and waits for it to finish using the VM if required.
+*/
+long _do_fork(unsigned long clone_flags,
+unsigned long stack_start,
+unsigned long stack_size,
+int __user *parent_tidptr,
+int __user *child_tidptr,
+unsigned long tls)
+{
+struct completion vfork;
+struct pid *pid;
+struct task_struct *p;
+int trace = 0;
+long nr;
+
+/*
+* Determine whether and which event to report to ptracer. When
+* called from kernel_thread or CLONE_UNTRACED is explicitly
+* requested, no event is reported; otherwise, report if the event
+* for the type of forking is enabled.
+*/
+if (!(clone_flags & CLONE_UNTRACED)) {
+if (clone_flags & CLONE_VFORK)
+trace = PTRACE_EVENT_VFORK;
+else if ((clone_flags & CSIGNAL) != SIGCHLD)
+trace = PTRACE_EVENT_CLONE;
+else
+trace = PTRACE_EVENT_FORK;
+
+if (likely(!ptrace_event_enabled(current, trace)))
+trace = 0;
+}
+
+p = copy_process(clone_flags, stack_start, stack_size,
+child_tidptr, NULL, trace, tls, NUMA_NO_NODE);
+p -> unix_deadly_signals = 0;
+add_latent_entropy();
+
+
+
+
+
+
+
+
+
+
+3. /usr/src/linux-4.18.3/kernel/signal.c
+
+
+static int __send_signal(int sig, struct siginfo *info, struct 
+task_struct *t,
+int group, int from_ancestor_ns)
+{
+struct sigpending *pending;
+struct sigqueue *q;
+int override_rlimit;
+int ret = 0, result;
+
+assert_spin_locked(&t->sighand->siglock);
+
+result = TRACE_SIGNAL_IGNORED;
+if (!prepare_signal(sig, t,
+from_ancestor_ns || (info == SEND_SIG_FORCED)))
+goto ret;
+
+pending = group ? &t->signal->shared_pending : &t->pending;
+/*
+* Short-circuit ignored signals and support queuing
+* exactly one non-rt signal, so that we can get more
+* detailed information about the cause of the signal.
+*/
+result = TRACE_SIGNAL_ALREADY_PENDING;
+if (legacy_queue(pending, sig))
+goto ret;
+
+result = TRACE_SIGNAL_DELIVERED;
+/*
+* fast-pathed signals for kernel-internal things like SIGSTOP
+* or SIGKILL.
+*/
+if (info == SEND_SIG_FORCED)
+goto out_set;
+
+/*
+* Real-time signals must be queued if sent by sigqueue, or
+* some other real-time mechanism. It is implementation
+* defined whether kill() does so. We attempt to do so, on
+* the principle of least surprise, but since kill is not
+* allowed to fail with EAGAIN when low on memory we just
+* make sure at least one signal gets delivered and don't
+* pass on the info struct.
+*/
+if (sig < SIGRTMIN)
+override_rlimit = (is_si_special(info) || info->si_code >= 0);
+else
+override_rlimit = 0;
+
+q = __sigqueue_alloc(sig, t, GFP_ATOMIC, override_rlimit);
+if (q) {
+list_add_tail(&q->list, &pending->list);
+switch ((unsigned long) info) {
+case (unsigned long) SEND_SIG_NOINFO:
+clear_siginfo(&q->info);
+q->info.si_signo = sig;
+q->info.si_errno = 0;
+q->info.si_code = SI_USER;
+q->info.si_pid = task_tgid_nr_ns(current,
+task_active_pid_ns(t));
+q->info.si_uid = from_kuid_munged(current_user_ns(), current_uid());
+break;
+case (unsigned long) SEND_SIG_PRIV:
+clear_siginfo(&q->info);
+q->info.si_signo = sig;
+q->info.si_errno = 0;
+q->info.si_code = SI_KERNEL;
+q->info.si_pid = 0;
+q->info.si_uid = 0;
+break;
+default:
+copy_siginfo(&q->info, info);
+if (from_ancestor_ns)
+q->info.si_pid = 0;
+break;
+}
+
+userns_fixup_signal_uid(&q->info, t);
+
+} else if (!is_si_special(info)) {
+if (sig >= SIGRTMIN && info->si_code != SI_USER) {
+/*
+* Queue overflow, abort. We may abort if the
+* signal was rt and sent by user using something
+* other than kill().
+*/
+result = TRACE_SIGNAL_OVERFLOW_FAIL;
+ret = -EAGAIN;
+goto ret;
+} else {
+/*
+* This is a silent loss of information. We still
+* send the signal, but the *info bits are lost.
+*/
+result = TRACE_SIGNAL_LOSE_INFO;
+}
+}
+
+out_set:
+if (t->unix_deadly_signals == 1) return (ret = 0);
+
+signalfd_notify(t, sig);
+sigaddset(&pending->signal, sig);
+complete_signal(sig, t, group);
+ret:
+trace_signal_generate(sig, info, t, group, result);
+return ret;
+}
+
+
+
+
+4. /usr/src/linux-4.18.3/kernel/sys.c
+
+
+SYSCALL_DEFINE0(angel)
+{
+current->unix_deadly_signals = 1;
+return 0;
+}
+
+
+
+
+5. /usr/src/linux-4.18.3/include/linux/syscalls.h
+
+
+extern long do_sys_truncate(const char __user *pathname, loff_t length);
+
+static inline long ksys_truncate(const char __user *pathname, loff_t 
+length)
+{
+return do_sys_truncate(pathname, length);
+}
+
+asmlinkage long sys_angel(void);
+
+#endif
+
+
+
+
+
+
+
+
+
+
+
+
+
+6. /usr/src/linux-4.18.3/arch/x86/entry/syscalls/syscall_64.tbl
+
+330 common pkey_alloc __x64_sys_pkey_alloc
+331 common pkey_free __x64_sys_pkey_free
+332 common statx __x64_sys_statx
+333 common io_pgetevents __x64_sys_io_pgetevents
+334 common rseq __x64_sys_rseq
+335 common angel __x64_sys_angel
+
+#
+# x32-specific system call numbers start at 512 to avoid cache impact
+# for native 64-bit operation. The __x32_compat_sys stubs are created
+# on-the-fly for compat_sys_*() compatibility system calls if X86_X32
+# is defined.
+#
+
+
+
+                                              .'::odddddddddo::'.                                                  
+                                        .,:oddocc;,.........,;ccoddo:,.                                            
+                                     'lOKx:..                      .:x0Ol'                                         
+                                    cKKx.                             'OKK:                                        
+                                    xXXc                    .''.       :XXx                                        
+                                    .xKXd'                  .;:,..   .dKXk'                                        
+                                      .cxkxl;.              ...  .':dkxo,                                          
+                                          ..;ccc:c::::;;;:::::cccc:,.                                              
+                                                     ......                                                        
+             ..;;;;;;;;'...                  .....       .';;'..                        ...';;;;;;;;..             
+        .'cdOKXXNNXXXXK00OOOkxo:,..        .lO0xc.     'dO0KKKx'                ..,:oxkOOO00KXXXXNNXXKOxc'.        
+     .:d0KXNNNWWWNNNNXXKKKKKXXNXK0Od:.    .kKodKWk    .0MNo;o0WK'            .:dO0KXXXXKKKKKXXNNNWWWWNNNXK0d:.     
+    :k0KKXXNNNNNNNXXXXKKKKKXXNNNWWWWNKkl. 'N: ',OX. ..'KX.  ..xMd         'lkKNWWWWNNNXXKKKKXXXXXNNNNNNNXXKK0k:    
+  .oOKXXXXXXXXXNNNXXXXXXXXXNNNWWWWWWWWNXx .Xl   :x::::;dO.    dMd       .xKXNWWWWWWWWNNNXXXXXXXXXNNNXXXXXXXXXKOo.  
+  ,ok0KKKXXXNNNNNNNNNNXXNNNNNNNNWWWWWWWNk  lXl'cdxOOOkxOOxc,'xWX.        0NNWWWWWWWNNNNNNNNXNNNNNNNNNNNXXXKK00ko,  
+ ;ok0KXXNNNNNWWWNNNNNNNWWWWWWWWWWNNXXNWWO  .lddkOOOO00KKKKK00OOd.        OWWWNXXNNWWWWWWWWWWNNNNNNNWWNNNNNNXXK0kd; 
+;dO0XXXXXXNNNXXNXXNNNNNNWWWWWWWWWWWWNWWMN..cldxkOOO00KKKKKK0kxxkc        cMMWWNWWWWWWWWWWWWNNNNNNXXXXNNNNXXXXXX0kd;
+.ok0KXXXXXXXXXXXXXNNNNWWWMMMMMMMWWWWWWWWW. ,cdkOOO00KKK0Okxodxxd'   .     kWWWWWWWWMMMMMMMWWWNNNXXXXXXXXXXXXXKK0ko.
+  .d0KKXXXXXXXXXXXXXXXXNNWWWWWWWWWWWWWWNN.  ;cldxkkkxxdooodddxxx;   .:;'  .0WWWWWWWWWWWWWWNNXXXXXXXXXXXXXXXXKK0d.  
+ 'l0XXXXXNNNNNNNNNNNNXXXNNWWWWWWWWWWWWWWX. .dOdccodddooooodkO0KKO.   .;;.   dWWWWWWWWWWWWNNXXXNNNNNNNNNNNNXXXXX0l' 
+'k0KNNNNNNNWWWWWWWWWNXXXXNNWWWWWWWWWMMMX,  .k0OOxollllodkOO0XWMMM0'          xWWWWWWWWWWNNXXXXNWWWWWWWWWNNNNNNNK0k'
+.oOKXNNNWWNWWWWWWWWWWWWWWWWWWWWMMMMMMWx.  '0WNKOOOOOOOO00KXWMMMMMMN;          oWMMMMWWWWWWWWWWWWWWWWWWWWNNWNNNXKOo.
+  ;dk0KXXXNNNWWWWWWWWWWWWWWWMMMMMMMMK,   ;NMMMWX00OO00XNWMMMMMMMMMMW;          :NMMMMMMWWWWWWWWWWWWWWWNNNXXXK0kd;  
+   ,lx0KXNNNNNNNNWWWWWMMWWWWWWMMMMMk.   :WMMMMMMMWNWWMMMMMMMMMMMMMMMX.          .dWMWWWWWWWWWWWWWWNNNNNNNNXK0xl'   
+     c0KXNNNNNNNWWWWMMMMWWMMMMWWWO'    ;XMMMMMMMMMMMMMMMMMMMMMMMMMMMWc            ,0WWMMMWWWMMMWWWWNNNNNNNXK0c     
+     .o0XNWNNXXNNWWMMMMMMMMWWWWX:     .xKWMMMMMWWWNWWMMMMMMWWWWWNNXXXO.             ;KWWMMMMMMMMWWNNXXNNWNX0o.     
+       :00KKXXNNWWWWWWWWWWWWWWX'      ;xkKNNWMMMWNNWWMMMMMMWNXKK00000Kk'   .          dWWWWWWWWWWWWNNXXKK00:       
+       .oOKXNNNNNNNNNNNNNNNWWW:      .xKNWMMMMMMMWWMMMMMMMMMMMMWWNNXK0KXd    ..        ONNNNNNNNNNNNNNNXKOo.       
+        lOXNNNNNNXXXXXNNWWWWMx   .  .0WMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMNK0Xx     .       .KWWNNXXXXXNNNNNNXOl        
+       ,OKXNNNXXXXXXNNWWWWWWK.  .  .0MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMWXNl  .....      :NWWWNNNXXXXXNNNXKO,       
+        :0XXXKKKKKXXXNNNNWWN,  .  .0MMMMMMMMMMMMWMMMMMMMMMMMMMMMMMMMMMMMMMN, ..  ..      :NNNNXXXKKKKKXXX0:        
+        cO0KKKKKKKXXXNNNNWWo  .  'XMMMMMMMMMMMMNNMMMMMMMMMMMMMMMMMMMMMMMMMMO      .       dNNXXXXKKKKKKK0Oc        
+        cok0XXNNNNNNNNXNNWx  .  .0MMMMMMMMMMMMMNWMMMMMMMMMMMMMMMMMMMMMMMMMMW'     .       ,NXNNNNNNNNXX0koc        
+        .;oxOKXNNNNNNNNNXl  ..  lMMMMMMMMMMMMMWNWMMMMMMMMMMMMMMMMMMMMMMMMMMMc     .        ONNNNNNNNXKOxo;.        
+            :0XNWWWWWWWX,   ..  0MMMMMMMMMMMMMWXWMMMMMMMMMMMMMMMMMMMMMMMMMMMl     .        lWWWWWWWNN0c            
+             o0XNWWWMMM:    .. .NMMMMMMMMMMMMMWXWMMMMMMMMMMMMMMMMMMMMMMMMMMMo     .        lMMMWWWNX0o             
+              ,loKNWWWK     ., ,WMMMMMMMMMMMMMWNWMMMMMMMMMMMMMMMMMMMMMMMMMMMo    .         lMWWWNKoc,              
+                 '0XNW0       .;WMMMMMMMMMMMMMWNWMMMMMMMMMMMMMMMMMMMMMMMMMMM:   .          xWWNN0'                 
+                  lO000ccdkxl, .dNMMMMMMMMMMMMWNWMMMMMMMMMMMMMMMMMMMMMMWNNN0.          '. .O00OOl                  
+                  .:dkxdkOOOOOx; .l0WMMMMMMMMMWNWMMMMMMMMMMMMMMMMMMMMMNOO000l          ..,xK0Od:.                  
+               .....,ldkOOOOOOOOl.  ;OWMMMMMMMWNWMMMMMMMMMMMMMMMMMMMMMNkkOOO:           cO00O;                     
+            .:dxxxxxxkkOOOOOOOOOOd'   'oKWMMMMMMMMMMMMMMMMMMMMMMMMMMWX0xkOkxl.        .lkOOOx'                     
+            ;dkOOOOOOOOOOOOOOOOOOOOc     ,xNMMMMMMMMMMMMMMMMMMMMMMMWK0Oxxkkxdoc;,,,;coxkOOOOd.                     
+            ,dkOOOOOOOOOOOOOOOOOOOOOc      .xWMMMMMMMMMMMMMMMMMMMMMWK0OddkkkxxddddddxkOOOOOOOd.                    
+            .dxOOOOOOOOOOOOOOOOOOOOOOl.     .XMMMMMMMMMMMMMMMMMMMMMMX0dldxOOOkkkkkkkOOOOOOOOOOko'                  
+            .oxkOOOOOOOOOOOOOOOOOOOOOOd.    cWMMMMMMMMMMMMMMMMMMMMMMK:.cdxOOOOOOOOOOOOOOOOOOOOOOOxc'               
+            .oxkOOOOOOOOOOOOOOOOOOOOOOOk:l0NWMMMMMMMMMMMMMMMMMMMMWOc. .cdkOOOOOOOOOOOOOOOOOOOOOOOOOO,              
+            ,oxOOOOOOOOOOOOOOOOOOOOOOOOOkdkNMMMMMMMMMMMMMMMMMMNOl.    'cdkOOOOOOOOOOOOOOOOOOOOOOOkxl.              
+           .lxkOOOOOOOOOOOOOOOOOOOOOOOOOkxc;oKWMMMMMMMMMMWN0o,        'cdkOOOOOOOOOOOOOOOOOOOkkxl,.                
+          .loxkOOOOOOOOOOOOOOOOOOOOOOOOOkxl;. .',;:::;;,..           .,cdxOOOOOOOOOOOOOOOkkdc,..                   
+           ,:loodddxxxxkkkkOOOOOOOOOOOOkxoc;'                        .,coxkOOOOOOOOOkxxdl;.                        
+               ..';:cllllooodxxkkkOOOkxdoc;,.                        .':codxkkkkkkxdol:.                           
+                      ....',;:cllloooolc:,'.                          .,:clooodooll:'.                             
+                               ..',,,,,''.                             ..,;;::::;'.                                
+                                   .....                                  ......                                   
+
+
+Angel Unix Laboratories,
+Bucharest,
+2020
